@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 支持将加密音频格式（如KGM）转换为MP3
+- 支持将加密音频格式（现在支持KGM/KGMA/NCM/KWM/MGG/MGG0/MGG1/MGGL/MFLAC/MFLAC0）转换为MP3
 - 支持批量转换
 - 提供Web界面操作
 - 跨平台支持
