@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Encrypted Audio MP3 Converter</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="toolbar" aria-labelledby="title">
+        <div>
+          <h1 id="title">Encrypted Audio MP3 Converter</h1>
+          <p class="subtle">本地批量转换 KGM、NCM、KWM、MGG、MFLAC，自动补全缺失后缀，复用浏览器端解密脚本。</p>
+        </div>
+        <div class="status-pill" id="appStatus">就绪</div>
+      </section>
+
+      <section class="panel controls" aria-label="转换设置">
+        <label class="field wide">
+          <span>源目录</span>
+          <span class="path-row">
+            <input id="rootInput" type="text" autocomplete="off">
+            <button id="pickRootButton" class="icon-button path-button" type="button" aria-label="选择源目录" title="选择源目录">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h5"/></svg>
+            </button>
+          </span>
+        </label>
+        <label class="field wide">
+          <span>输出目录</span>
+          <span class="path-row">
+            <input id="outInput" type="text" autocomplete="off">
+            <button id="pickOutButton" class="icon-button path-button" type="button" aria-label="选择输出目录" title="选择输出目录">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M12 13v5m0 0 3-3m-3 3-3-3"/></svg>
+            </button>
+          </span>
+        </label>
+        <label class="field small">
+          <span>并发</span>
+          <input id="concurrencyInput" type="number" min="1" max="8" step="1">
+        </label>
+        <label class="field small">
+          <span>每批文件数</span>
+          <input id="batchSizeInput" type="number" min="1" max="100" step="1">
+          <small>内存紧张时调小</small>
+        </label>
+        <label class="check">
+          <input id="autoCompleteInput" type="checkbox" checked>
+          <span>自动补全无后缀文件</span>
+        </label>
+        <label class="check">
+          <input id="overwriteInput" type="checkbox">
+          <span>覆盖已有输出</span>
+        </label>
+        <label class="check">
+          <input id="refreshInput" type="checkbox">
+          <span>重新下载 decrypt.js</span>
+        </label>
+        <div class="actions">
+          <button id="scanButton" class="button secondary" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 18a7.5 7.5 0 1 1 5.3-12.8 7.5 7.5 0 0 1-5.3 12.8Zm5.2-2.3 4.6 4.6"/></svg>
+            <span>扫描</span>
+          </button>
+          <button id="convertButton" class="button primary" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+            <span>开始转换</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="扫描摘要">
+        <div class="metric">
+          <span>待转换</span>
+          <strong id="kgmCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>缺加密后缀</span>
+          <strong id="missingKgmCount">0</strong>
+        </div>
+        <div class="metric">
+          <span>缺音频后缀</span>
+          <strong id="missingMp3Count">0</strong>
+        </div>
+        <div class="metric">
+          <span>已存在</span>
+          <strong id="existingCount">0</strong>
+        </div>
+      </section>
+
+      <section class="panel progress-panel" aria-label="转换进度">
+        <div class="progress-head">
+          <div>
+            <h2>进度</h2>
+            <p id="progressText">等待扫描或转换</p>
+          </div>
+          <div class="progress-numbers">
+            <span id="convertedCount">0</span>
+            <span>/</span>
+            <span id="totalCount">0</span>
+          </div>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <div id="progressBar"></div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <section class="panel list-panel" aria-label="输出文件">
+          <div class="panel-head">
+            <h2>输出</h2>
+            <button id="clearOutputButton" class="icon-button" type="button" aria-label="清空输出列表" title="清空输出列表">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>
+            </button>
+          </div>
+          <ol id="outputList" class="file-list"></ol>
+        </section>
+
+        <section class="panel log-panel" aria-label="任务日志">
+          <div class="panel-head">
+            <h2>日志</h2>
+            <button id="clearLogButton" class="icon-button" type="button" aria-label="清空日志" title="清空日志">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 11h6M10 15h4M6 19h12"/></svg>
+            </button>
+          </div>
+          <div id="logBox" class="log-box"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

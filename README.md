@@ -1,12 +1,13 @@
 # Encrypted Audio MP3 Converter
 
-音频加密格式转换为MP3的工具。
+加密音频格式转换为MP3的工具。
 
 ## 功能
 
-- 支持将加密音频格式转换为MP3
+- 支持将加密音频格式（如KGM）转换为MP3
 - 支持批量转换
-- Web界面操作
+- 提供Web界面操作
+- 跨平台支持
 
 ## 技术栈
 
@@ -17,8 +18,18 @@
 
 ```
 app/
-  public/       - 前端资源
-  server.js     - 服务器端
-convert-kgm-to-mp3.js - KGM转换器
-mp3-output/     - 输出目录
+  public/           - 前端资源（HTML/CSS/JS）
+    index.html      - 主页
+    styles.css      - 样式文件
+    app.js          - 前端逻辑
+  server.js         - 服务器端
+convert-kgm-to-mp3.js    - KGM转MP3转换器
+convert-batch-worker.js  - 批量转换工作进程
+mp3-output/         - MP3输出目录
 ```
+
+## 启动方式
+
+1. 双击 `启动KGM转换器.ps1` 自动启动
+2. 或手动运行：`node app/server.js`
+3. 访问 http://localhost:3000
