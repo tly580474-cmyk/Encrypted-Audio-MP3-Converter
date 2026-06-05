@@ -30,6 +30,5 @@ mp3-output/         - MP3输出目录
 
 ## 启动方式
 
-1. 双击 `启动KGM转换器.ps1` 自动启动
-2. 或手动运行：`node app/server.js`
-3. 访问 http://localhost:3000
+双击 `启动KGM转换器.ps1` 自动启动
+
