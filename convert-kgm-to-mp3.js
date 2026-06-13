@@ -38,6 +38,9 @@ const AUDIO_MAGIC = [
   { ext: ".ogg", test: (b) => b.length >= 4 && b.toString("ascii", 0, 4) === "OggS" },
   { ext: ".wav", test: (b) => b.length >= 12 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WAVE" },
 ];
+const ALLOWED_AUDIO_BITRATES = new Set(["96", "128", "160", "192", "256", "320"]);
+const ALLOWED_SAMPLE_RATES = new Set(["22050", "32000", "44100", "48000"]);
+const ALLOWED_CHANNELS = new Set(["1", "2"]);
 
 function parseArgs(argv) {
   const args = {
@@ -51,6 +54,9 @@ function parseArgs(argv) {
     includeExtensionless: false,
     fixExtensionlessMp3: false,
     refreshDecryptJs: false,
+    audioBitrate: "",
+    sampleRate: "",
+    channels: "",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -71,6 +77,9 @@ function parseArgs(argv) {
     else if (arg === "--include-extensionless") args.includeExtensionless = true;
     else if (arg === "--fix-extensionless-mp3") args.fixExtensionlessMp3 = true;
     else if (arg === "--refresh-decrypt-js") args.refreshDecryptJs = true;
+    else if (arg === "--audio-bitrate") args.audioBitrate = next();
+    else if (arg === "--sample-rate") args.sampleRate = next();
+    else if (arg === "--channels") args.channels = next();
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -99,6 +108,9 @@ Options:
   --include-extensionless      Try extensionless encrypted files unless they already look like audio
   --fix-extensionless-mp3      Rename extensionless MP3-like files by appending .mp3
   --refresh-decrypt-js         Re-download the website decrypt script
+  --audio-bitrate <kbps>       Re-encode MP3 with a bitrate such as 128, 192, 256, or 320
+  --sample-rate <hz>           Re-encode MP3 with a sample rate such as 44100 or 48000
+  --channels <n>               Re-encode MP3 with channel count 1 or 2
   --help                       Show this help
 `);
 }
@@ -299,6 +311,29 @@ function sanitizeFileName(name) {
     .slice(0, 240) || "converted";
 }
 
+function normalizeAudioOptions(args) {
+  const audioBitrate = String(args.audioBitrate || "").trim();
+  const sampleRate = String(args.sampleRate || "").trim();
+  const channels = String(args.channels || "").trim();
+
+  if (audioBitrate && !ALLOWED_AUDIO_BITRATES.has(audioBitrate)) {
+    throw new Error(`Unsupported audio bitrate: ${audioBitrate}`);
+  }
+  if (sampleRate && !ALLOWED_SAMPLE_RATES.has(sampleRate)) {
+    throw new Error(`Unsupported sample rate: ${sampleRate}`);
+  }
+  if (channels && !ALLOWED_CHANNELS.has(channels)) {
+    throw new Error(`Unsupported channel count: ${channels}`);
+  }
+
+  return { audioBitrate, sampleRate, channels };
+}
+
+function hasCustomAudioOptions(args) {
+  const options = normalizeAudioOptions(args);
+  return Boolean(options.audioBitrate || options.sampleRate || options.channels);
+}
+
 function baseNameWithoutSourceExt(inputPath, result) {
   const rawName = result.rawFilename || path.basename(inputPath);
   const info = sourceFileInfo(rawName);
@@ -332,17 +367,18 @@ function findFfmpeg() {
   return "";
 }
 
-async function transcodeBufferToMp3(buffer, outputPath) {
+async function transcodeBufferToMp3(buffer, outputPath, args = {}) {
   const ffmpeg = findFfmpeg();
   if (!ffmpeg) {
     throw new Error("ffmpeg not found; install ffmpeg or set FFMPEG_PATH to convert non-MP3 decoded audio to MP3");
   }
+  const audioOptions = normalizeAudioOptions(args);
 
   const tempInput = path.join(os.tmpdir(), `openyyy-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.writeFileSync(tempInput, buffer);
 
   try {
-    const result = childProcess.spawnSync(ffmpeg, [
+    const ffmpegArgs = [
       "-hide_banner",
       "-loglevel",
       "error",
@@ -352,10 +388,18 @@ async function transcodeBufferToMp3(buffer, outputPath) {
       "-vn",
       "-codec:a",
       "libmp3lame",
-      "-q:a",
-      "2",
-      outputPath,
-    ], { encoding: "utf8", windowsHide: true });
+    ];
+
+    if (audioOptions.audioBitrate) {
+      ffmpegArgs.push("-b:a", `${audioOptions.audioBitrate}k`);
+    } else {
+      ffmpegArgs.push("-q:a", "2");
+    }
+    if (audioOptions.sampleRate) ffmpegArgs.push("-ar", audioOptions.sampleRate);
+    if (audioOptions.channels) ffmpegArgs.push("-ac", audioOptions.channels);
+    ffmpegArgs.push(outputPath);
+
+    const result = childProcess.spawnSync(ffmpeg, ffmpegArgs, { encoding: "utf8", windowsHide: true });
 
     if (result.error) throw result.error;
     if (result.status !== 0) {
@@ -383,10 +427,10 @@ async function convertOne(decrypt, args, inputPath) {
   if (!args.dryRun) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     const decoded = Buffer.from(await result.blob.arrayBuffer());
-    if ((result.ext || "mp3").toLowerCase() === "mp3") {
+    if ((result.ext || "mp3").toLowerCase() === "mp3" && !hasCustomAudioOptions(args)) {
       fs.writeFileSync(outputPath, decoded);
     } else {
-      await transcodeBufferToMp3(decoded, outputPath);
+      await transcodeBufferToMp3(decoded, outputPath, args);
     }
   }
 
@@ -490,6 +534,9 @@ async function runIsolatedBatches(items, batchSize, concurrency, options, onEven
           outDir: options.outDir,
           overwrite: Boolean(options.overwrite),
           dryRun: false,
+          audioBitrate: options.audioBitrate,
+          sampleRate: options.sampleRate,
+          channels: options.channels,
         }, filePath);
         results.push(result);
         onEvent?.({ type: "file", index, filePath, result });
@@ -526,6 +573,9 @@ async function runIsolatedBatches(items, batchSize, concurrency, options, onEven
       outDir: options.outDir,
       overwrite: Boolean(options.overwrite),
       refreshDecryptJs: Boolean(options.refreshDecryptJs),
+      audioBitrate: options.audioBitrate,
+      sampleRate: options.sampleRate,
+      channels: options.channels,
     }));
 
     await new Promise((resolve, reject) => {
