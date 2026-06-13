@@ -9,7 +9,12 @@ const url = require("url");
 
 const converter = require("../convert-kgm-to-mp3.js");
 
-const ROOT_DIR = path.resolve(__dirname, "..");
+if (process.argv[2] === "--worker") {
+  require("../convert-batch-worker.js");
+  return;
+}
+
+const ROOT_DIR = process.pkg ? path.dirname(process.execPath) : path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DEFAULT_OUT_DIR = path.join(ROOT_DIR, "mp3-output");
 const PORT = Number.parseInt(process.env.PORT || "4317", 10);
@@ -133,7 +138,7 @@ function scanDirectory(options) {
   });
 
   const alreadyConverted = scan.convert.filter((filePath) => {
-    const expected = path.join(options.outDir, path.relative(options.root, path.dirname(filePath)), `${path.parse(filePath).name}.mp3`);
+    const expected = converter.outputPathFor(options, filePath, {});
     return fs.existsSync(expected);
   }).length;
 
@@ -359,5 +364,13 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`KGM MP3 Converter app running at http://127.0.0.1:${PORT}`);
+  const appUrl = `http://127.0.0.1:${PORT}`;
+  console.log(`KGM MP3 Converter app running at ${appUrl}`);
+  if (process.pkg || process.env.OPEN_BROWSER === "1") {
+    childProcess.spawn("cmd", ["/c", "start", "", appUrl], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    }).unref();
+  }
 });
