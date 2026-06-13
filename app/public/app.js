@@ -2,8 +2,10 @@
 
 const els = {
   appStatus: document.getElementById("appStatus"),
+  audioBitrateInput: document.getElementById("audioBitrateInput"),
   autoCompleteInput: document.getElementById("autoCompleteInput"),
   batchSizeInput: document.getElementById("batchSizeInput"),
+  channelsInput: document.getElementById("channelsInput"),
   clearLogButton: document.getElementById("clearLogButton"),
   clearOutputButton: document.getElementById("clearOutputButton"),
   concurrencyInput: document.getElementById("concurrencyInput"),
@@ -23,6 +25,7 @@ const els = {
   progressText: document.getElementById("progressText"),
   refreshInput: document.getElementById("refreshInput"),
   rootInput: document.getElementById("rootInput"),
+  sampleRateInput: document.getElementById("sampleRateInput"),
   scanButton: document.getElementById("scanButton"),
   totalCount: document.getElementById("totalCount"),
 };
@@ -39,6 +42,9 @@ function setBusy(isBusy) {
   els.convertButton.disabled = isBusy;
   els.rootInput.disabled = isBusy;
   els.outInput.disabled = isBusy;
+  els.audioBitrateInput.disabled = isBusy;
+  els.sampleRateInput.disabled = isBusy;
+  els.channelsInput.disabled = isBusy;
 }
 
 function addLog(message) {
@@ -65,6 +71,9 @@ function getOptions() {
     autoComplete: els.autoCompleteInput.checked,
     overwrite: els.overwriteInput.checked,
     refreshDecryptJs: els.refreshInput.checked,
+    audioBitrate: els.audioBitrateInput.value,
+    sampleRate: els.sampleRateInput.value,
+    channels: els.channelsInput.value,
   };
 }
 
@@ -123,6 +132,9 @@ async function loadDefaults() {
   els.outInput.value = defaults.outDir;
   els.batchSizeInput.value = defaults.batchSize;
   els.concurrencyInput.value = defaults.concurrency;
+  els.audioBitrateInput.value = defaults.audioBitrate || "";
+  els.sampleRateInput.value = defaults.sampleRate || "";
+  els.channelsInput.value = defaults.channels || "";
   addLog("应用已启动。");
 }
 
