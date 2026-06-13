@@ -19,6 +19,9 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DEFAULT_OUT_DIR = path.join(ROOT_DIR, "mp3-output");
 const PORT = Number.parseInt(process.env.PORT || "4317", 10);
 const SOURCE_FORMAT_LABEL = "KGM/KGMA/NCM/KWM/MGG/MFLAC";
+const ALLOWED_AUDIO_BITRATES = new Set(["", "96", "128", "160", "192", "256", "320"]);
+const ALLOWED_SAMPLE_RATES = new Set(["", "22050", "32000", "44100", "48000"]);
+const ALLOWED_CHANNELS = new Set(["", "1", "2"]);
 
 const jobs = new Map();
 
@@ -85,6 +88,13 @@ function serveStatic(req, res, pathname) {
 function normalizeOptions(body) {
   const root = path.resolve(body.root || ROOT_DIR);
   const outDir = path.resolve(body.outDir || DEFAULT_OUT_DIR);
+  const audioBitrate = String(body.audioBitrate || "").trim();
+  const sampleRate = String(body.sampleRate || "").trim();
+  const channels = String(body.channels || "").trim();
+  if (!ALLOWED_AUDIO_BITRATES.has(audioBitrate)) throw new Error(`不支持的音频比特率：${audioBitrate}`);
+  if (!ALLOWED_SAMPLE_RATES.has(sampleRate)) throw new Error(`不支持的采样率：${sampleRate}`);
+  if (!ALLOWED_CHANNELS.has(channels)) throw new Error(`不支持的声道数：${channels}`);
+
   return {
     root,
     outDir,
@@ -93,6 +103,9 @@ function normalizeOptions(body) {
     overwrite: Boolean(body.overwrite),
     autoComplete: body.autoComplete !== false,
     refreshDecryptJs: Boolean(body.refreshDecryptJs),
+    audioBitrate,
+    sampleRate,
+    channels,
   };
 }
 
@@ -197,6 +210,12 @@ async function runJob(job) {
 
   try {
     let scan = converter.collectWork({ root: options.root, includeExtensionless: false });
+    const audioSummary = [
+      options.audioBitrate ? `${options.audioBitrate} kbps` : "自动比特率",
+      options.sampleRate ? `${options.sampleRate} Hz` : "自动采样率",
+      options.channels ? `${options.channels} 声道` : "自动声道",
+    ].join("，");
+    emitJob(job, "log", `音频输出设置：${audioSummary}。`);
     emitJob(job, "log", `扫描完成：${scan.convert.length} 个 ${SOURCE_FORMAT_LABEL}，${scan.extensionlessEncrypted.length} 个缺少加密格式后缀，${scan.extensionlessAudio.length} 个缺少音频后缀。`);
 
     if (options.autoComplete) {
@@ -305,6 +324,9 @@ async function handleApi(req, res, pathname) {
         outDir: DEFAULT_OUT_DIR,
         batchSize: 10,
         concurrency: 2,
+        audioBitrate: "",
+        sampleRate: "",
+        channels: "",
       });
       return;
     }
