@@ -9,13 +9,13 @@ function writeEvent(event) {
 }
 
 async function main() {
-  const jobPath = process.argv[2];
+  const jobPath = process.argv[2] === "--worker" ? process.argv[3] : process.argv[2];
   if (!jobPath) throw new Error("Missing worker job file path");
 
   const job = JSON.parse(fs.readFileSync(jobPath, "utf8"));
   await converter.ensureDecryptScript(Boolean(job.refreshDecryptJs));
   converter.installBrowserPolyfills();
-  const decrypt = require(path.join(__dirname, ".openyyy-cache", "decrypt.js"));
+  const decrypt = converter.loadDecryptModule();
 
   await converter.runPool(job.files, job.concurrency, async (filePath, localIndex) => {
     const index = job.start + localIndex;
@@ -25,6 +25,9 @@ async function main() {
         outDir: job.outDir,
         overwrite: job.overwrite,
         dryRun: false,
+        audioBitrate: job.audioBitrate,
+        sampleRate: job.sampleRate,
+        channels: job.channels,
       }, filePath);
       writeEvent({ type: "file", index, filePath, result });
     } catch (error) {
