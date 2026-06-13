@@ -10,6 +10,7 @@ const SITE_ORIGIN = "https://convert.freelrc.com";
 const DECRYPT_URL = `${SITE_ORIGIN}/js/decrypt.js`;
 const CACHE_DIR = path.join(__dirname, ".openyyy-cache");
 const DECRYPT_JS = path.join(CACHE_DIR, "decrypt.js");
+const IS_PACKAGED = Boolean(process.pkg);
 const SOURCE_FORMAT_LABEL = "KGM/KGMA/NCM/KWM/MGG/MFLAC";
 const DEFAULT_EXTS = new Set([
   ".kgm",
@@ -23,6 +24,7 @@ const DEFAULT_EXTS = new Set([
   ".mflac",
   ".mflac0",
 ]);
+const WRAPPED_EXTS = new Set([".flac"]);
 const KGM_MAGIC = Buffer.from("7CD532EB86027F4BA8AFA68E0FFF9914", "hex");
 const ENCRYPTED_MAGIC = [
   { ext: ".kgm", test: (b) => b.length >= KGM_MAGIC.length && b.subarray(0, KGM_MAGIC.length).equals(KGM_MAGIC) },
@@ -103,11 +105,23 @@ Options:
 
 async function ensureDecryptScript(refresh) {
   if (!refresh && fs.existsSync(DECRYPT_JS)) return;
+  if (IS_PACKAGED && fs.existsSync(DECRYPT_JS)) return;
+  if (IS_PACKAGED) {
+    throw new Error("内置 decrypt.js 缺失，离线版无法重新下载解密脚本");
+  }
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   console.log(`[setup] downloading ${DECRYPT_URL}`);
   const res = await fetch(DECRYPT_URL);
   if (!res.ok) throw new Error(`Failed to download decrypt.js: HTTP ${res.status}`);
   fs.writeFileSync(DECRYPT_JS, Buffer.from(await res.arrayBuffer()));
+}
+
+function loadDecryptModule() {
+  try {
+    return require("./.openyyy-cache/decrypt.js");
+  } catch {
+    return require(DECRYPT_JS);
+  }
 }
 
 function installBrowserPolyfills() {
@@ -209,6 +223,42 @@ function detectEncryptedExt(filePath) {
   }
 }
 
+function sourceFileInfo(filePathOrName) {
+  const originalName = path.basename(filePathOrName);
+  const normalExt = path.extname(originalName).toLowerCase();
+  if (DEFAULT_EXTS.has(normalExt)) {
+    return {
+      matched: true,
+      baseName: path.parse(originalName).name,
+      fileNameForDecrypt: originalName,
+      sourceExt: normalExt,
+      wrapperExt: "",
+    };
+  }
+
+  if (WRAPPED_EXTS.has(normalExt)) {
+    const unwrappedName = originalName.slice(0, -normalExt.length);
+    const unwrappedExt = path.extname(unwrappedName).toLowerCase();
+    if (DEFAULT_EXTS.has(unwrappedExt)) {
+      return {
+        matched: true,
+        baseName: path.parse(unwrappedName).name,
+        fileNameForDecrypt: unwrappedName,
+        sourceExt: unwrappedExt,
+        wrapperExt: normalExt,
+      };
+    }
+  }
+
+  return {
+    matched: false,
+    baseName: originalName,
+    fileNameForDecrypt: originalName,
+    sourceExt: normalExt,
+    wrapperExt: "",
+  };
+}
+
 function collectWork(args) {
   const files = walkFiles(args.root);
   const convert = [];
@@ -216,13 +266,13 @@ function collectWork(args) {
   const extensionlessEncrypted = [];
 
   for (const filePath of files) {
-    const ext = path.extname(filePath).toLowerCase();
-    if (DEFAULT_EXTS.has(ext)) {
+    const info = sourceFileInfo(filePath);
+    if (info.matched) {
       convert.push(filePath);
       continue;
     }
 
-    if (ext === "") {
+    if (info.sourceExt === "") {
       const audioExt = detectAudioExt(filePath);
       if (audioExt) {
         extensionlessAudio.push({ filePath, audioExt });
@@ -251,9 +301,8 @@ function sanitizeFileName(name) {
 
 function baseNameWithoutSourceExt(inputPath, result) {
   const rawName = result.rawFilename || path.basename(inputPath);
-  const parsed = path.parse(rawName);
-  const ext = parsed.ext.toLowerCase();
-  return DEFAULT_EXTS.has(ext) ? parsed.name : rawName;
+  const info = sourceFileInfo(rawName);
+  return info.matched ? info.baseName : rawName;
 }
 
 function outputPathFor(args, inputPath, result) {
@@ -266,6 +315,8 @@ function outputPathFor(args, inputPath, result) {
 function findFfmpeg() {
   const candidates = [
     process.env.FFMPEG_PATH,
+    path.join(path.dirname(process.execPath), "ffmpeg.exe"),
+    path.join(path.dirname(process.execPath), "bin", "ffmpeg.exe"),
     "ffmpeg",
   ].filter(Boolean);
 
@@ -317,8 +368,9 @@ async function transcodeBufferToMp3(buffer, outputPath) {
 
 async function convertOne(decrypt, args, inputPath) {
   const originalName = path.basename(inputPath);
-  const detectedExt = path.extname(originalName) ? "" : detectEncryptedExt(inputPath);
-  const fileNameForDecrypt = path.extname(originalName) ? originalName : `${originalName}${detectedExt || ".kgm"}`;
+  const sourceInfo = sourceFileInfo(originalName);
+  const detectedExt = sourceInfo.sourceExt ? "" : detectEncryptedExt(inputPath);
+  const fileNameForDecrypt = sourceInfo.matched ? sourceInfo.fileNameForDecrypt : `${originalName}${detectedExt || ".kgm"}`;
   const data = fs.readFileSync(inputPath);
   const file = new File([data], fileNameForDecrypt);
   const result = await decrypt.Decrypt(file);
@@ -425,6 +477,37 @@ function readJsonLines(stream, onEvent) {
 }
 
 async function runIsolatedBatches(items, batchSize, concurrency, options, onEvent) {
+  if (IS_PACKAGED) {
+    await ensureDecryptScript(Boolean(options.refreshDecryptJs));
+    installBrowserPolyfills();
+    const decrypt = loadDecryptModule();
+    const results = [];
+
+    await runBatches(items, batchSize, concurrency, async (filePath, index) => {
+      try {
+        const result = await convertOne(decrypt, {
+          root: options.root,
+          outDir: options.outDir,
+          overwrite: Boolean(options.overwrite),
+          dryRun: false,
+        }, filePath);
+        results.push(result);
+        onEvent?.({ type: "file", index, filePath, result });
+      } catch (error) {
+        onEvent?.({
+          type: "file-error",
+          index,
+          filePath,
+          error: error && error.stack ? error.stack : String(error),
+        });
+      }
+    }, ({ batchIndex, totalBatches, start, batchSize: currentBatchSize }) => {
+      onEvent?.({ type: "batch", batchIndex, totalBatches, start, batchSize: currentBatchSize });
+    });
+
+    return results;
+  }
+
   const size = Math.max(1, batchSize || 10);
   const totalBatches = Math.ceil(items.length / size);
   const results = [];
@@ -446,12 +529,16 @@ async function runIsolatedBatches(items, batchSize, concurrency, options, onEven
     }));
 
     await new Promise((resolve, reject) => {
-      const child = childProcess.spawn(process.execPath, [
+      const childArgs = IS_PACKAGED
+        ? ["--worker", jobPath]
+        : [
         "--expose-gc",
         path.join(__dirname, "convert-batch-worker.js"),
         jobPath,
-      ], {
-        cwd: __dirname,
+      ];
+
+      const child = childProcess.spawn(process.execPath, childArgs, {
+        cwd: IS_PACKAGED ? path.dirname(process.execPath) : __dirname,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       });
@@ -522,7 +609,7 @@ async function main() {
   if (args.inProcess) {
     await ensureDecryptScript(args.refreshDecryptJs);
     installBrowserPolyfills();
-    const decrypt = require(DECRYPT_JS);
+    const decrypt = loadDecryptModule();
     await runBatches(convert, args.batchSize, args.concurrency, async (filePath, currentIndex) => {
       try {
         const result = await convertOne(decrypt, args, filePath);
@@ -569,9 +656,12 @@ module.exports = {
   fixExtensionlessEncrypted,
   fixExtensionlessMp3,
   installBrowserPolyfills,
+  loadDecryptModule,
+  outputPathFor,
   runBatches,
   runIsolatedBatches,
   runPool,
+  sourceFileInfo,
 };
 
 if (require.main === module) {
